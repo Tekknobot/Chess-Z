@@ -79,6 +79,15 @@ public class ChessManager : MonoBehaviour
     {
         PositionCamera();
         StartCoroutine(InitializeBoard());
+        // For testing checkmate, call the scenario setup after initializing the board.
+        // You may want to delay this call slightly to let the board set up.
+        // StartCoroutine(DelayedSetupCheckmateScenario());        
+    }
+
+    private IEnumerator DelayedSetupCheckmateScenario()
+    {
+        yield return new WaitForSeconds(1f);
+        SetupCheckmateScenario();
     }
 
     public void SelectPieceAt(Vector2Int position)
@@ -688,19 +697,7 @@ public class ChessManager : MonoBehaviour
             Debug.Log($"AI moving piece from {bestMove.from} to {bestMove.to} with score {bestMove.score}");
             MovePiece(bestMove.from, bestMove.to);
 
-            // After the move, check if the player's king is in checkmate.
-            bool opponentKingIsWhite = isPlayerWhite;
-            if (IsKingInCheck(opponentKingIsWhite))
-            {
-                Debug.Log("Check on player's king!");
-                if (IsCheckmate(opponentKingIsWhite))
-                {
-                    Debug.Log("Checkmate! Game over.");
-                    GameObject king = FindKing(opponentKingIsWhite);
-                    if (king != null)
-                        StartCoroutine(FlashCheckmatedKing(king));
-                }
-            }
+            CheckForCheckmateBothKings();
         }
         else
         {
@@ -821,7 +818,8 @@ public class ChessManager : MonoBehaviour
         if (!IsKingInCheck(kingIsWhite))
             return false;
 
-        foreach (var kvp in boardPieces)
+        // Iterate over a copy of the boardPieces dictionary
+        foreach (var kvp in boardPieces.ToList())
         {
             GameObject piece = kvp.Value;
             bool pieceIsWhite = piece.tag.StartsWith("White");
@@ -836,6 +834,7 @@ public class ChessManager : MonoBehaviour
                 if (boardPieces.ContainsKey(move))
                     capturedPiece = boardPieces[move];
 
+                // Simulate the move by modifying the dictionary on the copy
                 boardPieces.Remove(from);
                 boardPieces[move] = piece;
                 Vector3 oldPos = piece.transform.position;
@@ -843,18 +842,21 @@ public class ChessManager : MonoBehaviour
 
                 bool stillInCheck = IsKingInCheck(kingIsWhite);
 
+                // Revert the move
                 piece.transform.position = oldPos;
                 boardPieces.Remove(move);
                 boardPieces[from] = piece;
                 if (capturedPiece != null)
                     boardPieces[move] = capturedPiece;
 
+                // If there is at least one legal move that removes check, it's not mate.
                 if (!stillInCheck)
                     return false;
             }
         }
         return true;
     }
+
 
     public void CheckForCheckmateBothKings()
     {
@@ -1252,6 +1254,49 @@ public class ChessManager : MonoBehaviour
             }
             yield return null;
         }
+    }
+
+
+    // Sets up a simple checkmate scenario where Black is mated.
+    public void SetupCheckmateScenario()
+    {
+        // First, remove all existing pieces.
+        foreach (var kvp in boardPieces.ToList())
+        {
+            Destroy(kvp.Value);
+        }
+        boardPieces.Clear();
+        whitePieces.Clear();
+        blackPieces.Clear();
+
+        // Now, set up the new positions.
+        // Using 0-indexed coordinates with (0,0) as a1 (bottom left):
+        // White King at f6: (5,5)
+        // White Queen at h7: (7,6)
+        // Black King at h8: (7,7)
+        
+        // Create and place the white king.
+        Vector2Int whiteKingPos = new Vector2Int(5, 5);
+        GameObject whiteKing = CreatePiece("K", new Vector2(whiteKingPos.x, whiteKingPos.y));
+        whiteKing.tag = "WhiteKing";  // Ensure tag is set correctly.
+        whitePieces.Add(whiteKing);
+        boardPieces[whiteKingPos] = whiteKing;
+
+        // Create and place the white queen.
+        Vector2Int whiteQueenPos = new Vector2Int(7, 6);
+        GameObject whiteQueen = CreatePiece("Q", new Vector2(whiteQueenPos.x, whiteQueenPos.y));
+        whiteQueen.tag = "WhiteQueen";
+        whitePieces.Add(whiteQueen);
+        boardPieces[whiteQueenPos] = whiteQueen;
+
+        // Create and place the black king.
+        Vector2Int blackKingPos = new Vector2Int(7, 7);
+        GameObject blackKing = CreatePiece("k", new Vector2(blackKingPos.x, blackKingPos.y));
+        blackKing.tag = "BlackKing";
+        blackPieces.Add(blackKing);
+        boardPieces[blackKingPos] = blackKing;
+
+        Debug.Log("Checkmate scenario set up: Black King at h8, White Queen at h7, White King at f6.");
     }
 
 }
