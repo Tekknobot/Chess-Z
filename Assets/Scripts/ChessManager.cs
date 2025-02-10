@@ -558,7 +558,12 @@ public class ChessManager : MonoBehaviour
         isWhiteTurn = !isWhiteTurn;
         Debug.Log("🔄 Turn switched. Now it's " + (isWhiteTurn ? "White" : "Black") + "'s turn.");
 
-        if (!IsPlayerTurn())
+        if (IsPlayerTurn())
+        {
+            // When it becomes the player's turn, check for threatened pieces.
+            HighlightThreatenedPlayerPieces();
+        }
+        else
         {
             StartCoroutine(AIMoveCoroutine());
         }
@@ -578,13 +583,16 @@ public class ChessManager : MonoBehaviour
     private void AIMove()
     {
         bool enemyIsWhite = !isPlayerWhite;
-        List<(Vector2Int from, Vector2Int to)> possibleMoves = new List<(Vector2Int, Vector2Int)>();
+        // Use a list of tuples that also hold a score for each move.
+        List<(Vector2Int from, Vector2Int to, float score)> moveOptions = new List<(Vector2Int, Vector2Int, float)>();
 
+        // Iterate through all pieces on the board
         foreach (var kvp in boardPieces.ToList())
         {
             Vector2Int pos = kvp.Key;
             GameObject piece = kvp.Value;
 
+            // Only consider pieces that belong to the AI.
             if (enemyIsWhite)
             {
                 if (!piece.tag.StartsWith("White"))
@@ -596,26 +604,32 @@ public class ChessManager : MonoBehaviour
                     continue;
             }
 
-            // Use only legal moves for the AI.
+            // Get all legal moves for this piece.
             List<Vector2Int> moves = GetLegalMoves(pos, enemyIsWhite);
             foreach (Vector2Int move in moves)
             {
-                possibleMoves.Add((pos, move));
+                float score = 0f;
+                // If the move captures an enemy piece, add its value.
+                GameObject target = GetPieceAtPosition(move);
+                if (target != null)
+                {
+                    score += EvaluateCapture(target);
+                }
+                // Add a small random factor (between 0 and 0.5) so that moves with the same score are chosen differently.
+                score += Random.Range(0f, 0.5f);
+                moveOptions.Add((pos, move, score));
             }
         }
 
-        var captureMoves = possibleMoves.Where(m => GetPieceAtPosition(m.to) != null).ToList();
-        if (captureMoves.Count > 0)
-        {
-            possibleMoves = captureMoves;
-        }
 
-        if (possibleMoves.Count > 0)
+        if (moveOptions.Count > 0)
         {
-            var randomMove = possibleMoves[Random.Range(0, possibleMoves.Count)];
-            Debug.Log($"AI moving piece from {randomMove.from} to {randomMove.to}");
-            MovePiece(randomMove.from, randomMove.to);
-            // After the AI moves, check if the player's king is in checkmate.
+            // Choose the move with the highest score.
+            var bestMove = moveOptions.OrderByDescending(m => m.score).First();
+            Debug.Log($"AI moving piece from {bestMove.from} to {bestMove.to} with score {bestMove.score}");
+            MovePiece(bestMove.from, bestMove.to);
+
+            // After the move, check if the player's king is in checkmate.
             bool opponentKingIsWhite = isPlayerWhite;
             if (IsKingInCheck(opponentKingIsWhite))
             {
@@ -623,7 +637,6 @@ public class ChessManager : MonoBehaviour
                 if (IsCheckmate(opponentKingIsWhite))
                 {
                     Debug.Log("Checkmate! Game over.");
-                    // Flash the checkmated king:
                     GameObject king = FindKing(opponentKingIsWhite);
                     if (king != null)
                         StartCoroutine(FlashCheckmatedKing(king));
@@ -636,8 +649,33 @@ public class ChessManager : MonoBehaviour
         }
     }
 
-    // --- Legal Move Methods ---
 
+    private int EvaluateCapture(GameObject capturedPiece)
+    {
+        if (capturedPiece == null)
+            return 0;
+
+        // Use the tag to determine the type of the piece.
+        string tag = capturedPiece.tag;
+
+        if (tag.Contains("Pawn"))
+            return 1;
+        else if (tag.Contains("Knight"))
+            return 3;
+        else if (tag.Contains("Bishop"))
+            return 3;
+        else if (tag.Contains("Rook"))
+            return 5;
+        else if (tag.Contains("Queen"))
+            return 9;
+        else if (tag.Contains("King"))
+            return 100; // This is mostly for completeness. The king should not be captured in a legal game.
+        
+        return 0;
+    }
+
+ 
+    // --- Legal Move Methods ---
     private bool IsMoveValid(Vector2Int from, Vector2Int to)
     {
         if (!boardPieces.ContainsKey(from))
@@ -759,6 +797,34 @@ public class ChessManager : MonoBehaviour
         return true;
     }
 
+    public void CheckForCheckmateBothKings()
+    {
+        // Check if the white king is checkmated.
+        if (IsCheckmate(true))
+        {
+            Debug.Log("White is checkmated! Game Over.");
+            GameObject whiteKing = FindKing(true);
+            if (whiteKing != null)
+            {
+                // For example, flash the white king. (Assuming your FlashCheckmatedKing coroutine flashes red for white.)
+                StartCoroutine(FlashCheckmatedKing(whiteKing));
+            }
+        }
+        
+        // Check if the black king is checkmated.
+        if (IsCheckmate(false))
+        {
+            Debug.Log("Black is checkmated! Game Over.");
+            GameObject blackKing = FindKing(false);
+            if (blackKing != null)
+            {
+                // For example, flash the black king. (Assuming your FlashCheckmatedKing coroutine flashes blue for black.)
+                StartCoroutine(FlashCheckmatedKing(blackKing));
+            }
+        }
+    }
+
+
     // --- Flashing Checkmate Highlight ---
 
     private IEnumerator FlashCheckmatedKing(GameObject king)
@@ -793,20 +859,7 @@ public class ChessManager : MonoBehaviour
     // --- After Move Check (used after a player or AI move) ---
     private void PostMoveCheck()
     {
-        // Check the opponent's king after a move.
-        bool opponentKingIsWhite = !isPlayerWhite; // assuming player is white; adjust accordingly if necessary.
-        if (IsKingInCheck(opponentKingIsWhite))
-        {
-            Debug.Log("Check!");
-            if (IsCheckmate(opponentKingIsWhite))
-            {
-                Debug.Log("Checkmate! Game over.");
-                GameObject king = FindKing(opponentKingIsWhite);
-                if (king != null)
-                    StartCoroutine(FlashCheckmatedKing(king));
-                // Optionally disable further moves, display a message, etc.
-            }
-        }
+        CheckForCheckmateBothKings();
     }
 
     List<Vector2Int> GetPawnMoves(Vector2Int pos, bool isWhite)
@@ -967,6 +1020,113 @@ public class ChessManager : MonoBehaviour
     bool IsValidPosition(Vector2Int pos)
     {
         return pos.x >= 0 && pos.x < 8 && pos.y >= 0 && pos.y < 8;
+    }
+
+    private IEnumerator FlashThreatenedPiece(GameObject piece)
+    {
+        SpriteRenderer sr = piece.GetComponent<SpriteRenderer>();
+        if (sr == null)
+        {
+            Debug.LogError("FlashThreatenedPiece: Piece has no SpriteRenderer!");
+            yield break;
+        }
+        
+        Color originalColor = sr.color;
+        Color flashColor = Color.red; // Use red for threatened pieces.
+        
+        while (true)
+        {
+            // Check if it’s still the player’s turn. If not, stop flashing.
+            if (!IsPlayerTurn())
+            {
+                sr.color = originalColor;
+                yield break;
+            }
+            
+            // Also check if the piece is still threatened.
+            if (!IsPieceThreatened(piece))
+            {
+                sr.color = originalColor;
+                yield break;
+            }
+            
+            sr.color = flashColor;
+            yield return new WaitForSeconds(0.5f);
+            sr.color = originalColor;
+            yield return new WaitForSeconds(0.5f);
+        }
+    }
+
+    public void HighlightThreatenedPlayerPieces()
+    {
+        // Determine which side is the player.
+        bool playerIsWhite = isPlayerWhite;
+
+        // Loop through all pieces on the board.
+        foreach (var kvp in boardPieces)
+        {
+            Vector2Int pos = kvp.Key;
+            GameObject piece = kvp.Value;
+            
+            // Skip enemy pieces.
+            bool pieceIsWhite = piece.tag.StartsWith("White");
+            if (pieceIsWhite != playerIsWhite)
+                continue;
+            
+            // Check if any enemy piece can capture this piece.
+            bool threatened = false;
+            foreach (var enemyKvp in boardPieces)
+            {
+                GameObject enemyPiece = enemyKvp.Value;
+                bool enemyIsWhite = enemyPiece.tag.StartsWith("White");
+                // Only consider enemy pieces.
+                if (enemyIsWhite == playerIsWhite)
+                    continue;
+                
+                // Get the legal moves for the enemy piece.
+                List<Vector2Int> enemyMoves = GetValidMoves(enemyKvp.Key);
+                if (enemyMoves.Contains(pos))
+                {
+                    threatened = true;
+                    break;
+                }
+            }
+            
+            // If the piece is threatened, start a flashing coroutine.
+            if (threatened)
+            {
+                // To avoid starting multiple coroutines on the same piece, you might check if one is already running.
+                // For simplicity here, we'll simply start a coroutine.
+                StartCoroutine(FlashThreatenedPiece(piece));
+            }
+        }
+    }
+
+    private Vector2Int GetGridPosition(GameObject piece)
+    {
+        return new Vector2Int(Mathf.RoundToInt(piece.transform.position.x),
+                                Mathf.RoundToInt(piece.transform.position.y));
+    }
+
+
+    private bool IsPieceThreatened(GameObject piece)
+    {
+        Vector2Int pos = GetGridPosition(piece);
+        bool pieceIsWhite = piece.tag.StartsWith("White");
+        
+        foreach (var kvp in boardPieces)
+        {
+            GameObject enemyPiece = kvp.Value;
+            bool enemyIsWhite = enemyPiece.tag.StartsWith("White");
+            if (enemyIsWhite == pieceIsWhite)
+                continue;  // Same color; skip
+            
+            // Get the enemy piece’s legal moves (using GetValidMoves here)
+            List<Vector2Int> enemyMoves = GetValidMoves(kvp.Key);
+            if (enemyMoves.Contains(pos))
+                return true;
+        }
+        return false;
     }
 
 }
