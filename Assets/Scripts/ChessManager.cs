@@ -284,8 +284,42 @@ public class ChessManager : MonoBehaviour
         boardPieces[to] = piece;
         Debug.Log($"✅ Moved {piece.tag} from {from} to {to}");
 
+        // --- Inside MovePiece method, after moving the piece
+        // --- Pawn Promotion Check ---
+        if (piece.tag == "WhitePawn" && to.y == 7)
+        {
+            PromotePawn(piece, to, true);
+        }
+        else if (piece.tag == "BlackPawn" && to.y == 0)
+        {
+            PromotePawn(piece, to, false);
+        }
         ClearHighlights();
         ToggleTurn();
+    }
+
+    // --- New PromotePawn method ---
+    private void PromotePawn(GameObject pawn, Vector2Int pos, bool isWhite)
+    {
+        boardPieces.Remove(pos);
+        if (isWhite)
+            whitePieces.Remove(pawn);
+        else
+            blackPieces.Remove(pawn);
+        Destroy(pawn);
+
+        // Automatically promote to queen.
+        string promotionSymbol = isWhite ? "Q" : "q";
+        GameObject newQueen = CreatePiece(promotionSymbol, new Vector2(pos.x, pos.y));
+        if (newQueen != null)
+        {
+            boardPieces[pos] = newQueen;
+            if (isWhite)
+                whitePieces.Add(newQueen);
+            else
+                blackPieces.Add(newQueen);
+            Debug.Log($"Pawn promoted to Queen at {pos}");
+        }
     }
 
     private Vector3 GetNextCapturePosition(Transform container)
@@ -817,6 +851,8 @@ public class ChessManager : MonoBehaviour
             {
                 // For example, flash the white king. (Assuming your FlashCheckmatedKing coroutine flashes red for white.)
                 StartCoroutine(FlashCheckmatedKing(whiteKing));
+                // And fade the board tiles.
+                StartCoroutine(FadeBoardTiles());                
             }
         }
         
@@ -829,6 +865,8 @@ public class ChessManager : MonoBehaviour
             {
                 // For example, flash the black king. (Assuming your FlashCheckmatedKing coroutine flashes blue for black.)
                 StartCoroutine(FlashCheckmatedKing(blackKing));
+                // And fade the board tiles.
+                StartCoroutine(FadeBoardTiles());                
             }
         }
     }
@@ -1136,6 +1174,68 @@ public class ChessManager : MonoBehaviour
                 return true;
         }
         return false;
+    }
+
+    private IEnumerator FadeBoardTiles()
+    {
+        // Duration for fade out/in (in seconds)
+        float duration = 1f;
+        float t = 0f;
+
+        // --- Fade Out ---
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float alpha = Mathf.Lerp(1f, 0f, t / duration);
+            // Loop through all board tiles and set their alpha
+            for (int y = 0; y < tiles.GetLength(1); y++)
+            {
+                for (int x = 0; x < tiles.GetLength(0); x++)
+                {
+                    GameObject tile = tiles[x, y];
+                    if (tile != null)
+                    {
+                        SpriteRenderer sr = tile.GetComponent<SpriteRenderer>();
+                        if (sr != null)
+                        {
+                            Color c = sr.color;
+                            c.a = alpha;
+                            sr.color = c;
+                        }
+                    }
+                }
+            }
+            yield return null;
+        }
+
+        // Wait for a short pause with the board faded out.
+        yield return new WaitForSeconds(0.5f);
+
+        // --- Fade In ---
+        t = 0f;
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float alpha = Mathf.Lerp(0f, 1f, t / duration);
+            for (int y = 0; y < tiles.GetLength(1); y++)
+            {
+                for (int x = 0; x < tiles.GetLength(0); x++)
+                {
+                    GameObject tile = tiles[x, y];
+                    if (tile != null)
+                    {
+                        SpriteRenderer sr = tile.GetComponent<SpriteRenderer>();
+                        if (sr != null)
+                        {
+                            Color c = sr.color;
+                            c.a = alpha;
+                            sr.color = c;
+                        }
+                    }
+                }
+            }
+            yield return null;
+        }
     }
 
 }
