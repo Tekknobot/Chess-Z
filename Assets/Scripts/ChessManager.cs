@@ -291,9 +291,18 @@ public class ChessManager : MonoBehaviour
     private Vector3 GetNextCapturePosition(Transform container)
     {
         int count = container.childCount;
-        float spacing = 1.0f;
-        return container.position + new Vector3(count * spacing, 0, 0);
+        int maxPerRow = 8;
+        float spacing = 1.0f; // Adjust spacing as needed.
+
+        // Calculate which row and column this captured piece should occupy.
+        int row = count / maxPerRow;  // integer division: 0 for first row, 1 for second, etc.
+        int col = count % maxPerRow;    // remainder: position within the row
+
+        // Assume the container's position is the starting point (top-left, for instance).
+        // Adjust the vertical offset as needed (here we subtract for new rows below).
+        return container.position + new Vector3(col * spacing, -row * spacing, 0);
     }
+
 
     private bool IsHighlightedTile(Vector2Int position)
     {
