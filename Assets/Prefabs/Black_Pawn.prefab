@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2134451627192088654}
   - component: {fileID: 5332278144945063180}
+  - component: {fileID: -6513147446569137401}
   m_Layer: 0
   m_Name: Black_Pawn
   m_TagString: BlackPawn
@@ -84,3 +85,16 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
+--- !u!114 &-6513147446569137401
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6594552235304988170}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3e76edec137084d869bdd13b08737efb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hasMoved: 0

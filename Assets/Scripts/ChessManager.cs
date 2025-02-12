@@ -199,6 +199,11 @@ public class ChessManager : MonoBehaviour
                         StartCoroutine(MovePiece(selectedPiece, adjustedPos));
                         pieceSelected = false;
                         pendingCaptureTile = null;
+
+                        ChessPiece pieceData = clickedPiece.GetComponent<ChessPiece>();
+                        if (pieceData != null)
+                            pieceData.hasMoved = true;
+
                         return;
                     }
                     else
@@ -249,7 +254,7 @@ public class ChessManager : MonoBehaviour
 
     IEnumerator MovePiece(Vector2Int from, Vector2Int to)
     {
-        // Validate the move.
+        // (Existing move validation, capture logic, and animation code here…)
         if (!IsMoveValid(from, to))
         {
             Debug.Log("Illegal move: your king remains in check. Please try another move.");
@@ -266,11 +271,10 @@ public class ChessManager : MonoBehaviour
         Vector3 startPos = piece.transform.position;
         Vector3 targetPos = new Vector3(to.x, to.y, 0);
 
-        // Handle capturing if there is an enemy piece at the destination.
+        // Handle captures if any (same as before) …
         if (boardPieces.ContainsKey(to))
         {
             GameObject capturedPiece = boardPieces[to];
-
             if (capturedPiece.tag.Contains("White"))
                 whitePieces.Remove(capturedPiece);
             else
@@ -278,7 +282,6 @@ public class ChessManager : MonoBehaviour
 
             boardPieces.Remove(to);
 
-            // Move the captured piece to its capture area.
             if (capturedPiece.tag.Contains("White"))
             {
                 capturedPiece.transform.position = GetNextWhiteCapturePosition(whiteCaptureContainer);
@@ -292,15 +295,63 @@ public class ChessManager : MonoBehaviour
             Debug.Log($"🔥 Captured {capturedPiece.tag} at {to} and moved to capture area");
         }
 
-        // Update the board state.
         boardPieces.Remove(from);
         boardPieces[to] = piece;
         Debug.Log($"✅ Moving {piece.tag} from {from} to {to}");
 
-        // Animate the movement.
         yield return StartCoroutine(AnimateMovement(piece, startPos, targetPos, moveDuration));
 
-        // --- Pawn Promotion Check ---
+        // If the moving piece is a king and it moved two squares horizontally, assume castling.
+        if (piece.tag.Contains("King") && Mathf.Abs(to.x - from.x) == 2)
+        {
+            bool isWhiteKing = piece.tag.StartsWith("White");
+            if (to.x > from.x)
+            {
+                // Kingside castling: move the rook from the corner to the square adjacent to the king.
+                Vector2Int rookFrom = isWhiteKing ? new Vector2Int(7, 0) : new Vector2Int(7, 7);
+                Vector2Int rookTo = isWhiteKing ? new Vector2Int(5, 0) : new Vector2Int(5, 7);
+
+                if (boardPieces.TryGetValue(rookFrom, out GameObject rook))
+                {
+                    Vector3 rookStart = rook.transform.position;
+                    Vector3 rookTarget = new Vector3(rookTo.x, rookTo.y, 0);
+                    boardPieces.Remove(rookFrom);
+                    boardPieces[rookTo] = rook;
+                    yield return StartCoroutine(AnimateMovement(rook, rookStart, rookTarget, moveDuration));
+
+                    // Mark the rook as having moved.
+                    ChessPiece rookData = rook.GetComponent<ChessPiece>();
+                    if (rookData != null)
+                        rookData.hasMoved = true;
+                }
+            }
+            else
+            {
+                // Queenside castling.
+                Vector2Int rookFrom = isWhiteKing ? new Vector2Int(0, 0) : new Vector2Int(0, 7);
+                Vector2Int rookTo = isWhiteKing ? new Vector2Int(3, 0) : new Vector2Int(3, 7);
+
+                if (boardPieces.TryGetValue(rookFrom, out GameObject rook))
+                {
+                    Vector3 rookStart = rook.transform.position;
+                    Vector3 rookTarget = new Vector3(rookTo.x, rookTo.y, 0);
+                    boardPieces.Remove(rookFrom);
+                    boardPieces[rookTo] = rook;
+                    yield return StartCoroutine(AnimateMovement(rook, rookStart, rookTarget, moveDuration));
+
+                    ChessPiece rookData = rook.GetComponent<ChessPiece>();
+                    if (rookData != null)
+                        rookData.hasMoved = true;
+                }
+            }
+        }
+
+        // Mark the moving piece as having moved.
+        ChessPiece pieceData = piece.GetComponent<ChessPiece>();
+        if (pieceData != null)
+            pieceData.hasMoved = true;
+
+        // --- Pawn Promotion Check (if applicable) ---
         if (piece.tag == "WhitePawn" && to.y == 7)
         {
             PromotePawn(piece, to, true);
@@ -311,8 +362,6 @@ public class ChessManager : MonoBehaviour
         }
 
         ClearHighlights();
-
-        // Toggle turn (and perform post-move checks if needed).
         ToggleTurn();
         PostMoveCheck();
     }
@@ -569,7 +618,7 @@ public class ChessManager : MonoBehaviour
         highlightedTiles.Clear();
     }
 
-    List<Vector2Int> GetValidMoves(Vector2Int pos)
+    List<Vector2Int> GetValidMoves(Vector2Int pos, bool simulate = false)
     {
         List<Vector2Int> validMoves = new List<Vector2Int>();
         GameObject piece = GetPieceAtPosition(pos);
@@ -607,7 +656,7 @@ public class ChessManager : MonoBehaviour
                 break;
             case "WhiteKing":
             case "BlackKing":
-                validMoves = GetKingMoves(pos, pieceTag == "WhiteKing");
+                validMoves = GetKingMoves(pos, pieceTag.StartsWith("White"), includeCastling: !simulate);
                 break;
             default:
                 Debug.LogError($"❌ Unrecognized piece tag: {pieceTag} at {pos}");
@@ -788,17 +837,18 @@ public class ChessManager : MonoBehaviour
         foreach (var kvp in boardPieces)
         {
             GameObject piece = kvp.Value;
-            if (kingIsWhite && piece.tag == "WhiteKing")
+            bool pieceIsWhite = piece.tag.StartsWith("White");
+            if (pieceIsWhite == kingIsWhite)
+                continue;
+
+            // Pass simulate = true so that castling moves are excluded.
+            List<Vector2Int> moves = GetValidMoves(kvp.Key, true);
+            if (moves.Contains(kingPos))
             {
-                kingPos = kvp.Key;
-                break;
-            }
-            else if (!kingIsWhite && piece.tag == "BlackKing")
-            {
-                kingPos = kvp.Key;
-                break;
+                return true;
             }
         }
+
 
         if (kingPos.x == -1)
         {
@@ -1002,33 +1052,118 @@ public class ChessManager : MonoBehaviour
     }
 
 
-    List<Vector2Int> GetKingMoves(Vector2Int pos, bool isWhite)
+    List<Vector2Int> GetKingMoves(Vector2Int pos, bool isWhite, bool includeCastling = true)
     {
         List<Vector2Int> moves = new List<Vector2Int>();
+
+        // Normal king moves (one square any direction)
         Vector2Int[] directions = {
             new Vector2Int(1, 0), new Vector2Int(-1, 0), new Vector2Int(0, 1), new Vector2Int(0, -1),
             new Vector2Int(1, 1), new Vector2Int(-1, 1), new Vector2Int(1, -1), new Vector2Int(-1, -1)
         };
-        
+
         foreach (Vector2Int dir in directions)
         {
             Vector2Int newPos = pos + dir;
             if (IsValidPosition(newPos))
             {
                 GameObject target = GetPieceAtPosition(newPos);
-                if (target == null)
+                if (target == null || (isWhite ? target.tag.StartsWith("Black") : target.tag.StartsWith("White")))
                 {
                     moves.Add(newPos);
                 }
+            }
+        }
+
+        // Only add castling moves if allowed.
+        if (includeCastling)
+        {
+            GameObject king = GetPieceAtPosition(pos);
+            ChessPiece kingData = king?.GetComponent<ChessPiece>();
+            // Only allow castling if the king has not moved and is not in check.
+            if (kingData != null && !kingData.hasMoved && !IsKingInCheck(isWhite))
+            {
+                Vector2Int kingsideRookPos, queensideRookPos;
+                Vector2Int kingsideBetween1, kingsideBetween2, kingKingsideTarget;
+                Vector2Int queensideBetween1, queensideBetween2, queensideBetween3, kingQueensideTarget;
+
+                if (isWhite)
+                {
+                    kingsideRookPos = new Vector2Int(7, 0);
+                    kingsideBetween1 = new Vector2Int(5, 0);
+                    kingsideBetween2 = new Vector2Int(6, 0);
+                    kingKingsideTarget = new Vector2Int(6, 0);
+
+                    queensideRookPos = new Vector2Int(0, 0);
+                    queensideBetween1 = new Vector2Int(3, 0);
+                    queensideBetween2 = new Vector2Int(2, 0);
+                    queensideBetween3 = new Vector2Int(1, 0);
+                    kingQueensideTarget = new Vector2Int(2, 0);
+                }
                 else
                 {
-                    bool isEnemy = isWhite ? target.tag.StartsWith("Black") : target.tag.StartsWith("White");
-                    if (isEnemy)
-                        moves.Add(newPos);
+                    kingsideRookPos = new Vector2Int(7, 7);
+                    kingsideBetween1 = new Vector2Int(5, 7);
+                    kingsideBetween2 = new Vector2Int(6, 7);
+                    kingKingsideTarget = new Vector2Int(6, 7);
+
+                    queensideRookPos = new Vector2Int(0, 7);
+                    queensideBetween1 = new Vector2Int(3, 7);
+                    queensideBetween2 = new Vector2Int(2, 7);
+                    queensideBetween3 = new Vector2Int(1, 7);
+                    kingQueensideTarget = new Vector2Int(2, 7);
+                }
+
+                // Kingside castling: Check that the squares the king passes through are empty and safe.
+                if (GetPieceAtPosition(kingsideBetween1) == null &&
+                    GetPieceAtPosition(kingsideBetween2) == null &&
+                    IsSquareSafeForKing(kingsideBetween1, isWhite) &&
+                    IsSquareSafeForKing(kingsideBetween2, isWhite))
+                {
+                    moves.Add(kingKingsideTarget);
+                }
+
+                // Queenside castling: Check that all squares between the king and rook are empty and safe.
+                if (GetPieceAtPosition(queensideBetween1) == null &&
+                    GetPieceAtPosition(queensideBetween2) == null &&
+                    GetPieceAtPosition(queensideBetween3) == null &&
+                    IsSquareSafeForKing(queensideBetween1, isWhite) &&
+                    IsSquareSafeForKing(queensideBetween2, isWhite))
+                {
+                    moves.Add(kingQueensideTarget);
                 }
             }
         }
+
         return moves;
+    }
+
+
+    bool IsSquareSafeForKing(Vector2Int pos, bool kingIsWhite)
+    {
+        // Iterate over all enemy pieces and check if any of their (non–castling) moves attack pos.
+        foreach (var kvp in boardPieces)
+        {
+            GameObject piece = kvp.Value;
+            bool pieceIsWhite = piece.tag.StartsWith("White");
+            if (pieceIsWhite == kingIsWhite)
+                continue;
+
+            List<Vector2Int> moves;
+            // For enemy kings, exclude castling moves to avoid recursion.
+            if (piece.tag.Contains("King"))
+            {
+                moves = GetKingMoves(GetGridPosition(piece), pieceIsWhite, includeCastling: false);
+            }
+            else
+            {
+                moves = GetValidMoves(GetGridPosition(piece));
+            }
+
+            if (moves.Contains(pos))
+                return false;
+        }
+        return true;
     }
 
 
