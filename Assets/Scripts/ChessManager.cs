@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.UI; // <-- needed for UI classes
 
 public class ChessManager : MonoBehaviour
 {
@@ -26,6 +27,7 @@ public class ChessManager : MonoBehaviour
     public bool isWhiteTurn = true; // True if it's White's turn, false if Black
     private Dictionary<Vector2Int, GameObject> boardPieces = new Dictionary<Vector2Int, GameObject>();
     public float moveDuration = 0.5f; // Duration (in seconds) for each move animation.
+    public Slider aiLoadingBar;
 
 
     // Transform containers for captured pieces.
@@ -702,17 +704,101 @@ public class ChessManager : MonoBehaviour
 
     private IEnumerator AIMoveCoroutine()
     {
-        yield return new WaitForSeconds(1f);
-        AIMove();
+        // Activate and reset the loading bar.
+        aiLoadingBar.gameObject.SetActive(true);
+        aiLoadingBar.value = 0f;
+
+        bool enemyIsWhite = !isPlayerWhite;
+        var moveOptions = new List<(Vector2Int from, Vector2Int to, float score)>();
+
+        // Make a copy of boardPieces to avoid modification issues.
+        var enemyPieces = boardPieces.ToList();
+
+        // First, count the total candidate moves for progress tracking.
+        int totalCandidateMoves = 0;
+        foreach (var kvp in enemyPieces)
+        {
+            GameObject piece = kvp.Value;
+            // Only consider enemy pieces.
+            if (enemyIsWhite)
+            {
+                if (!piece.tag.StartsWith("White"))
+                    continue;
+            }
+            else
+            {
+                if (!piece.tag.StartsWith("Black"))
+                    continue;
+            }
+
+            totalCandidateMoves += GetLegalMoves(kvp.Key, enemyIsWhite).Count;
+        }
+
+        int evaluatedMoves = 0;
+        int yieldInterval = 5; // Yield after processing every 5 moves
+
+        // Evaluate candidate moves for each enemy piece.
+        foreach (var kvp in enemyPieces)
+        {
+            Vector2Int pos = kvp.Key;
+            GameObject piece = kvp.Value;
+
+            // Skip pieces that are not on the AI's side.
+            if (enemyIsWhite)
+            {
+                if (!piece.tag.StartsWith("White"))
+                    continue;
+            }
+            else
+            {
+                if (!piece.tag.StartsWith("Black"))
+                    continue;
+            }
+
+            List<Vector2Int> moves = GetLegalMoves(pos, enemyIsWhite);
+            foreach (Vector2Int move in moves)
+            {
+                // Evaluate the move (using your EvaluateMove function plus a small random factor).
+                float score = EvaluateMove(pos, move) + Random.Range(0f, 0.2f);
+                moveOptions.Add((pos, move, score));
+
+                evaluatedMoves++;
+                // Update the loading bar every few iterations.
+                if (evaluatedMoves % yieldInterval == 0)
+                {
+                    if (totalCandidateMoves > 0)
+                        aiLoadingBar.value = (float)evaluatedMoves / totalCandidateMoves;
+                    yield return null; // Yield control so Unity can update the UI.
+                }
+            }
+        }
+
+        // Ensure the slider is full.
+        aiLoadingBar.value = 1f;
+
+        // Choose and execute the best move, if any.
+        if (moveOptions.Count > 0)
+        {
+            var bestMove = moveOptions.OrderByDescending(m => m.score).First();
+            Debug.Log($"AI moving piece from {bestMove.from} to {bestMove.to} with score {bestMove.score}");
+            yield return StartCoroutine(MovePiece(bestMove.from, bestMove.to));
+            CheckForCheckmateBothKings();
+        }
+        else
+        {
+            Debug.Log("AI has no valid moves!");
+        }
+
+        // Hide the loading bar after the move.
+        aiLoadingBar.gameObject.SetActive(false);
     }
 
     private void AIMove()
     {
         bool enemyIsWhite = !isPlayerWhite;
-        // Use a list of tuples that also hold a score for each move.
         List<(Vector2Int from, Vector2Int to, float score)> moveOptions = new List<(Vector2Int, Vector2Int, float)>();
 
-        // Iterate through all pieces on the board
+        // Loop through all enemy pieces.
         foreach (var kvp in boardPieces.ToList())
         {
             Vector2Int pos = kvp.Key;
@@ -734,19 +820,11 @@ public class ChessManager : MonoBehaviour
             List<Vector2Int> moves = GetLegalMoves(pos, enemyIsWhite);
             foreach (Vector2Int move in moves)
             {
-                float score = 0f;
-                // If the move captures an enemy piece, add its value.
-                GameObject target = GetPieceAtPosition(move);
-                if (target != null)
-                {
-                    score += EvaluateCapture(target);
-                }
-                // Add a small random factor (between 0 and 0.5) so that moves with the same score are chosen differently.
-                score += Random.Range(0f, 0.5f);
+                // Use the new evaluation function.
+                float score = EvaluateMove(pos, move) + Random.Range(0f, 0.2f); // Keep a small random factor if desired.
                 moveOptions.Add((pos, move, score));
             }
         }
-
 
         if (moveOptions.Count > 0)
         {
@@ -754,7 +832,6 @@ public class ChessManager : MonoBehaviour
             var bestMove = moveOptions.OrderByDescending(m => m.score).First();
             Debug.Log($"AI moving piece from {bestMove.from} to {bestMove.to} with score {bestMove.score}");
             StartCoroutine(MovePiece(bestMove.from, bestMove.to));
-
             CheckForCheckmateBothKings();
         }
         else
@@ -762,7 +839,6 @@ public class ChessManager : MonoBehaviour
             Debug.Log("AI has no valid moves!");
         }
     }
-
 
     private int EvaluateCapture(GameObject capturedPiece)
     {
@@ -1455,6 +1531,54 @@ public class ChessManager : MonoBehaviour
             yield return null;
         }
         piece.transform.position = end; // Ensure it reaches the exact target position.
+    }
+
+    float EvaluateMove(Vector2Int from, Vector2Int to)
+    {
+        // Save references to the moving piece and any captured piece.
+        GameObject movingPiece = boardPieces[from];
+        GameObject capturedPiece = boardPieces.ContainsKey(to) ? boardPieces[to] : null;
+
+        // Simulate the move:
+        boardPieces.Remove(from);
+        boardPieces[to] = movingPiece;
+        Vector3 originalPos = movingPiece.transform.position;
+        movingPiece.transform.position = new Vector3(to.x, to.y, 0);
+
+        // Immediate score: gain from capturing a piece (if any)
+        float score = capturedPiece != null ? EvaluateCapture(capturedPiece) : 0;
+
+        // Now simulate opponent's best counter-move:
+        float opponentBestResponse = 0;
+        // Determine enemy side based on the moving piece:
+        bool enemyIsWhite = !movingPiece.tag.StartsWith("White");
+        foreach (var kvp in boardPieces.ToList())
+        {
+            GameObject piece = kvp.Value;
+            // Only consider enemy pieces
+            if (piece.tag.StartsWith("White") != enemyIsWhite)
+                continue;
+
+            // Get legal moves for the enemy piece.
+            List<Vector2Int> opponentMoves = GetLegalMoves(GetGridPosition(piece), piece.tag.StartsWith("White"));
+            foreach (Vector2Int oppMove in opponentMoves)
+            {
+                GameObject target = GetPieceAtPosition(oppMove);
+                float responseScore = target != null ? EvaluateCapture(target) : 0;
+                if (responseScore > opponentBestResponse)
+                    opponentBestResponse = responseScore;
+            }
+        }
+
+        // Undo the move simulation:
+        movingPiece.transform.position = originalPos;
+        boardPieces.Remove(to);
+        boardPieces[from] = movingPiece;
+        if (capturedPiece != null)
+            boardPieces[to] = capturedPiece;
+
+        // Return net score: immediate gain minus the opponent's potential gain.
+        return score - opponentBestResponse;
     }
 
 }
