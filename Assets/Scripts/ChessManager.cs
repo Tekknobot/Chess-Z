@@ -833,22 +833,22 @@ public class ChessManager : MonoBehaviour
 
     public bool IsKingInCheck(bool kingIsWhite)
     {
+        // Find the king's current position.
         Vector2Int kingPos = new Vector2Int(-1, -1);
         foreach (var kvp in boardPieces)
         {
             GameObject piece = kvp.Value;
-            bool pieceIsWhite = piece.tag.StartsWith("White");
-            if (pieceIsWhite == kingIsWhite)
-                continue;
-
-            // Pass simulate = true so that castling moves are excluded.
-            List<Vector2Int> moves = GetValidMoves(kvp.Key, true);
-            if (moves.Contains(kingPos))
+            if (kingIsWhite && piece.tag == "WhiteKing")
             {
-                return true;
+                kingPos = kvp.Key;
+                break;
+            }
+            else if (!kingIsWhite && piece.tag == "BlackKing")
+            {
+                kingPos = kvp.Key;
+                break;
             }
         }
-
 
         if (kingPos.x == -1)
         {
@@ -856,14 +856,16 @@ public class ChessManager : MonoBehaviour
             return false;
         }
 
+        // Now check enemy moves (using simulation if needed).
         foreach (var kvp in boardPieces)
         {
             GameObject piece = kvp.Value;
             bool pieceIsWhite = piece.tag.StartsWith("White");
             if (pieceIsWhite == kingIsWhite)
-                continue;
+                continue; // Skip friendly pieces.
 
-            List<Vector2Int> moves = GetValidMoves(kvp.Key);
+            // Use simulate mode to avoid complications (e.g., castling)
+            List<Vector2Int> moves = GetValidMoves(kvp.Key, true);
             if (moves.Contains(kingPos))
             {
                 return true;
@@ -871,6 +873,7 @@ public class ChessManager : MonoBehaviour
         }
         return false;
     }
+
 
     public bool IsCheckmate(bool kingIsWhite)
     {
