@@ -25,6 +25,8 @@ public class ChessManager : MonoBehaviour
     private List<GameObject> highlightedTiles = new List<GameObject>();
     public bool isWhiteTurn = true; // True if it's White's turn, false if Black
     private Dictionary<Vector2Int, GameObject> boardPieces = new Dictionary<Vector2Int, GameObject>();
+    public float moveDuration = 0.5f; // Duration (in seconds) for each move animation.
+
 
     // Transform containers for captured pieces.
     // Assign these in the Inspector to empty GameObjects positioned below (or above) the board.
@@ -194,10 +196,9 @@ public class ChessManager : MonoBehaviour
                     {
                         MovePiece(selectedPiece, adjustedPos);
                         // After the move, check for check/checkmate.
-                        PostMoveCheck();
+                        StartCoroutine(MovePiece(selectedPiece, adjustedPos));
                         pieceSelected = false;
                         pendingCaptureTile = null;
-                        ClearHighlights();
                         return;
                     }
                     else
@@ -210,10 +211,9 @@ public class ChessManager : MonoBehaviour
                 else
                 {
                     MovePiece(selectedPiece, adjustedPos);
-                    PostMoveCheck();
+                    StartCoroutine(MovePiece(selectedPiece, adjustedPos));
                     pieceSelected = false;
                     pendingCaptureTile = null;
-                    ClearHighlights();
                     return;
                 }
             }
@@ -247,23 +247,26 @@ public class ChessManager : MonoBehaviour
         }
     }
 
-    void MovePiece(Vector2Int from, Vector2Int to)
+    IEnumerator MovePiece(Vector2Int from, Vector2Int to)
     {
+        // Validate the move.
         if (!IsMoveValid(from, to))
         {
             Debug.Log("Illegal move: your king remains in check. Please try another move.");
-            return;
-        }   
+            yield break;
+        }
 
         if (!boardPieces.ContainsKey(from))
         {
-            Debug.LogError($"❌ MovePiece() failed: No piece found at {from}");
-            return;
+            Debug.LogError($"❌ MovePieceCoroutine() failed: No piece found at {from}");
+            yield break;
         }
 
         GameObject piece = boardPieces[from];
+        Vector3 startPos = piece.transform.position;
+        Vector3 targetPos = new Vector3(to.x, to.y, 0);
 
-        // If destination has an enemy piece (capture)
+        // Handle capturing if there is an enemy piece at the destination.
         if (boardPieces.ContainsKey(to))
         {
             GameObject capturedPiece = boardPieces[to];
@@ -275,6 +278,7 @@ public class ChessManager : MonoBehaviour
 
             boardPieces.Remove(to);
 
+            // Move the captured piece to its capture area.
             if (capturedPiece.tag.Contains("White"))
             {
                 capturedPiece.transform.position = GetNextWhiteCapturePosition(whiteCaptureContainer);
@@ -288,12 +292,14 @@ public class ChessManager : MonoBehaviour
             Debug.Log($"🔥 Captured {capturedPiece.tag} at {to} and moved to capture area");
         }
 
-        piece.transform.position = new Vector3(to.x, to.y, 0);
+        // Update the board state.
         boardPieces.Remove(from);
         boardPieces[to] = piece;
-        Debug.Log($"✅ Moved {piece.tag} from {from} to {to}");
+        Debug.Log($"✅ Moving {piece.tag} from {from} to {to}");
 
-        // --- Inside MovePiece method, after moving the piece
+        // Animate the movement.
+        yield return StartCoroutine(AnimateMovement(piece, startPos, targetPos, moveDuration));
+
         // --- Pawn Promotion Check ---
         if (piece.tag == "WhitePawn" && to.y == 7)
         {
@@ -305,7 +311,10 @@ public class ChessManager : MonoBehaviour
         }
 
         ClearHighlights();
+
+        // Toggle turn (and perform post-move checks if needed).
         ToggleTurn();
+        PostMoveCheck();
     }
 
     // --- New PromotePawn method ---
@@ -695,7 +704,7 @@ public class ChessManager : MonoBehaviour
             // Choose the move with the highest score.
             var bestMove = moveOptions.OrderByDescending(m => m.score).First();
             Debug.Log($"AI moving piece from {bestMove.from} to {bestMove.to} with score {bestMove.score}");
-            MovePiece(bestMove.from, bestMove.to);
+            StartCoroutine(MovePiece(bestMove.from, bestMove.to));
 
             CheckForCheckmateBothKings();
         }
@@ -1297,6 +1306,17 @@ public class ChessManager : MonoBehaviour
         boardPieces[blackKingPos] = blackKing;
 
         Debug.Log("Checkmate scenario set up: Black King at h8, White Queen at h7, White King at f6.");
+    }
+    IEnumerator AnimateMovement(GameObject piece, Vector3 start, Vector3 end, float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            piece.transform.position = Vector3.Lerp(start, end, elapsed / duration);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        piece.transform.position = end; // Ensure it reaches the exact target position.
     }
 
 }

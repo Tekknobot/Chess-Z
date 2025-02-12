@@ -909,6 +909,10 @@ PrefabInstance:
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 7107570201649246194, guid: 7310d490f46f545de892f003918697e3, type: 3}
+      propertyPath: moveDuration
+      value: 0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 7107570201649246194, guid: 7310d490f46f545de892f003918697e3, type: 3}
       propertyPath: isPlayerWhite
       value: 1
       objectReference: {fileID: 0}
