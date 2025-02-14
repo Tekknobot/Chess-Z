@@ -27,7 +27,6 @@ public class ChessManager : MonoBehaviour
     public bool isWhiteTurn = true; // True if it's White's turn, false if Black
     private Dictionary<Vector2Int, GameObject> boardPieces = new Dictionary<Vector2Int, GameObject>();
     public float moveDuration = 0.5f; // Duration (in seconds) for each move animation.
-    public Slider aiLoadingBar;
 
 
     // Transform containers for captured pieces.
@@ -704,17 +703,13 @@ public class ChessManager : MonoBehaviour
 
     private IEnumerator AIMoveCoroutine()
     {
-        // Activate and reset the loading bar.
-        aiLoadingBar.gameObject.SetActive(true);
-        aiLoadingBar.value = 0f;
-
         bool enemyIsWhite = !isPlayerWhite;
         var moveOptions = new List<(Vector2Int from, Vector2Int to, float score)>();
 
         // Make a copy of boardPieces to avoid modification issues.
         var enemyPieces = boardPieces.ToList();
 
-        // First, count the total candidate moves for progress tracking.
+        // Count the total candidate moves for progress tracking.
         int totalCandidateMoves = 0;
         foreach (var kvp in enemyPieces)
         {
@@ -730,7 +725,6 @@ public class ChessManager : MonoBehaviour
                 if (!piece.tag.StartsWith("Black"))
                     continue;
             }
-
             totalCandidateMoves += GetLegalMoves(kvp.Key, enemyIsWhite).Count;
         }
 
@@ -763,18 +757,22 @@ public class ChessManager : MonoBehaviour
                 moveOptions.Add((pos, move, score));
 
                 evaluatedMoves++;
-                // Update the loading bar every few iterations.
+
+                // Update the board's tint every few iterations.
                 if (evaluatedMoves % yieldInterval == 0)
                 {
-                    if (totalCandidateMoves > 0)
-                        aiLoadingBar.value = (float)evaluatedMoves / totalCandidateMoves;
+                    float progress = (float)evaluatedMoves / totalCandidateMoves;
+                    UpdateBoardTileColors(progress);
                     yield return null; // Yield control so Unity can update the UI.
                 }
             }
         }
 
-        // Ensure the slider is full.
-        aiLoadingBar.value = 1f;
+        // Ensure the board is fully tinted (progress = 1).
+        UpdateBoardTileColors(1f);
+        
+        // Optionally, wait a brief moment to let the player see the completed tint.
+        yield return new WaitForSeconds(0.2f);
 
         // Choose and execute the best move, if any.
         if (moveOptions.Count > 0)
@@ -789,8 +787,8 @@ public class ChessManager : MonoBehaviour
             Debug.Log("AI has no valid moves!");
         }
 
-        // Hide the loading bar after the move.
-        aiLoadingBar.gameObject.SetActive(false);
+        // Reset the board tile colors to normal.
+        ResetBoardTileColors();
     }
 
     private void AIMove()
@@ -1579,6 +1577,50 @@ public class ChessManager : MonoBehaviour
 
         // Return net score: immediate gain minus the opponent's potential gain.
         return score - opponentBestResponse;
+    }
+
+    /// <summary>
+    /// Updates the color of all board tiles by lerping between the original color and a loading color.
+    /// </summary>
+    /// <param name="progress">A value between 0 and 1; 0 = original, 1 = fully tinted.</param>
+    private void UpdateBoardTileColors(float progress)
+    {
+        // Define your loading color (you can change this to any color you like).
+        Color loadingColor = Color.red;
+        
+        // Loop through all tiles.
+        for (int y = 0; y < tiles.GetLength(1); y++)
+        {
+            for (int x = 0; x < tiles.GetLength(0); x++)
+            {
+                // Compute the original color based on position.
+                Color originalColor = ((x + y) % 2 == 0) 
+                    ? new Color(0.85f, 0.85f, 0.85f) 
+                    : new Color(0.25f, 0.25f, 0.25f);
+                
+                // Lerp from originalColor to loadingColor.
+                Color newColor = Color.Lerp(originalColor, loadingColor, progress);
+                
+                // Update the tile's SpriteRenderer color.
+                if (tiles[x, y] != null)
+                {
+                    SpriteRenderer sr = tiles[x, y].GetComponent<SpriteRenderer>();
+                    if (sr != null)
+                    {
+                        sr.color = newColor;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resets the board tiles to their original colors.
+    /// </summary>
+    private void ResetBoardTileColors()
+    {
+        // Passing progress = 0 sets the color to the original color.
+        UpdateBoardTileColors(0f);
     }
 
 }
